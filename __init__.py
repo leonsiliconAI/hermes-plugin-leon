@@ -29,10 +29,6 @@ logger = logging.getLogger(__name__)
 
 _PATCHED_ATTR = "_slack_always_react_patched"
 
-def _is_real_message(event: dict) -> bool:
-    return call(__file__, "isRealMessage", event)
-
-
 def wire(native, adapter) -> None:
     """``register_platform_handler`` factory: patch this adapter instance once."""
     if getattr(adapter, _PATCHED_ATTR, False):
@@ -50,7 +46,8 @@ def wire(native, adapter) -> None:
         msg_event = await build(event, *args, **kwargs)
         try:
             ts = kwargs.get("ts")
-            if msg_event is not None and ts and enabled() and _is_real_message(event or {}):
+            if call(__file__, "shouldTrack", event or {}, ts, msg_event is not None,
+                    bool(ts and msg_event is not None and enabled())):
                 track(str(kwargs.get("team_id") or ""), ts)
         except Exception:
             logger.warning("slack-always-react: could not track ts=%s", kwargs.get("ts"), exc_info=True)

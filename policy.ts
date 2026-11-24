@@ -1,3 +1,5 @@
+import { agentGroup, clientMessageId } from "./slack.ts";
+
 interface SlackEvent {
   client_msg_id?: unknown;
   message?: { client_msg_id?: unknown };
@@ -5,10 +7,16 @@ interface SlackEvent {
   _hermes_force_process?: boolean;
 }
 
-export const agentPosts = ["de1e6a7e-b075-", "de1e6a7e-c0de-"];
-
-export function isRealMessage(event: SlackEvent): boolean {
-  const id = event.client_msg_id || event.message?.client_msg_id;
-  const agentPost = typeof id === "string" && agentPosts.some((prefix) => id.startsWith(prefix));
-  return !(event._hermes_reaction || event._hermes_force_process || agentPost);
+export function shouldTrack(
+  event: SlackEvent,
+  ts: string | undefined,
+  accepted: boolean,
+  enabled: boolean,
+) {
+  return Boolean(
+    accepted &&
+    ts &&
+    enabled &&
+    !(event._hermes_reaction || event._hermes_force_process || agentGroup(clientMessageId(event))),
+  );
 }

@@ -22,26 +22,15 @@ from __future__ import annotations
 import functools
 import logging
 
+from ._pythonmonkey import call
+
+
 logger = logging.getLogger(__name__)
 
 _PATCHED_ATTR = "_slack_always_react_patched"
 
-#: client_msg_id starts on an agent's post through slack-as-leon: a Grok bot's, a Codex session's.
-AGENT_POSTS = ("de1e6a7e-b075-", "de1e6a7e-c0de-")
-
-
-def _is_agent_post(event: dict) -> bool:
-    value = event.get("client_msg_id")
-    if not value and isinstance(event.get("message"), dict):  # message_changed envelope
-        value = event["message"].get("client_msg_id")
-    return isinstance(value, str) and value.startswith(AGENT_POSTS)
-
-
 def _is_real_message(event: dict) -> bool:
-    """Synthetic reaction-triggered turns carry the reaction's ts, not a message ts; a Grok bot's
-    post is Leon's only in name."""
-    return not (event.get("_hermes_reaction") or event.get("_hermes_force_process")
-                or _is_agent_post(event))
+    return call(__file__, "isRealMessage", event)
 
 
 def wire(native, adapter) -> None:

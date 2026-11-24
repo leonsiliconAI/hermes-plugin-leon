@@ -11,7 +11,7 @@ A Grok bot's post in a task thread (slack-as-leon's marker with second group `b0
 ## Install
 
 ```sh
-hermes plugins install leonsiliconAI/hermes-plugin-slack-always-react --enable
+hermes plugins install leonsiliconAI/hermes-plugin-slack-always-react --enable --yes-deps
 ```
 
 See [migration steps](https://github.com/leonsilicon/leonsilicon.ai/blob/main/DEVELOPMENT.md#hermes-plugin-mirrors) for an existing install. Restart the gateway.

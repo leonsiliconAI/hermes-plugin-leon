@@ -1,5 +1,5 @@
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
-// slack.ts
+// \0hermes-slack.ts
 const groups = {
 	grok: "b075",
 	codex: "c0de"

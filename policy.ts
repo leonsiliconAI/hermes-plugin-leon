@@ -1,4 +1,4 @@
-import { agentGroup, clientMessageId } from "./slack.ts";
+import { agentGroup, clientMessageId } from "#slack";
 
 interface SlackEvent {
   client_msg_id?: unknown;

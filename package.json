@@ -5,7 +5,8 @@
   "description": "Hermes plugin: 👀 → ✅/❌ reactions on every Slack message Hermes processes.",
   "type": "module",
   "imports": {
-    "#plugin": "./plugin.ts"
+    "#plugin": "./plugin.ts",
+    "#slack": "./slack.ts"
   },
   "exports": {
     ".": "./+.ts"

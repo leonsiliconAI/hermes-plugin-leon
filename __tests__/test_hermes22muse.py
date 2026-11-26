@@ -33,6 +33,7 @@ from leon.hermes22muse.muse import Message, MuseChat, MuseError, STAMP, history_
 from leon.hermes22muse import museweb
 from leon.hermes22muse import relay as relay_module
 from leon.hermes22muse.relay import Relay, Slack, Store, operation_id
+from leon.hermes22muse.schedules import TRIGGER_PROMPT, schedule_request
 from leon.hermes22muse.turns import STALE, Turns
 
 TEAM, CHANNEL, OWNER = "T001", "C001", "U001"
@@ -435,6 +436,53 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await relay.push_routines(post)
 
+    async def test_schedule_runs_survive_a_missing_one_time_schedule_and_a_failed_slack_send(self):
+        schedules = [
+            {"id": "alarm", "title": "Hermes handoff: Bring the tripod", "schedule_key": "runonce@09:00"},
+            {"id": "heartbeat", "title": "Hermes handoff: Heartbeat", "mode": "heartbeat"},
+            {"id": "legacy", "title": "Still does its own work"},
+        ]
+        runs = [
+            {"job_id": job, "run_id": run, "scheduled_for_utc": due, "trigger_reason": reason}
+            for job, run, due, reason in [
+                ("alarm", "scheduled-run", 110, "scheduled"), ("alarm", "retry-run", 110, "retry"),
+                ("alarm", "old-run", 90, "scheduled"), ("heartbeat", "heartbeat-run", 110, "scheduled"),
+                ("legacy", "legacy-run", 110, "scheduled"),
+            ]
+        ]
+        responses = Mock(side_effect=[
+            [{"body": {"schedules": schedules}}, {"body": {"runs": []}}],
+            [{"body": {"schedules": schedules[1:]}}, {"body": {"runs": runs}}],
+            [{"body": {"schedules": schedules[1:]}}, {"body": {"runs": runs}}],
+        ])
+        web = SimpleNamespace(signed_in=lambda: True, calls=responses)
+        slack = SimpleNamespace(schedule_feed=AsyncMock(return_value=(TEAM, CHANNEL)),
+                                post_schedule=AsyncMock(side_effect=[TimeoutError, REQUEST]))
+        relay = Relay(self.store, slack, self.muse, OWNER, web)
+        await relay.poll_schedule_runs(now=100)
+        await relay.poll_schedule_runs(now=120)
+        with self.assertRaises(TimeoutError):
+            await relay.publish_schedule_runs()
+        restarted = Relay(Store(self.directory), slack, self.muse, OWNER, web)
+        await restarted.poll_schedule_runs(now=130)
+        await restarted.publish_schedule_runs()
+        await restarted.publish_schedule_runs()
+        self.assertEqual(slack.post_schedule.await_count, 2)
+        posted = slack.post_schedule.await_args.args[2]
+        self.assertEqual(posted["text"], "Muse reminder due: Bring the tripod\nMuse schedule: alarm\nMuse run: scheduled-run")
+        self.assertEqual(slack.post_schedule.await_args_list[0].args[2]["run_id"], posted["run_id"])
+
+    def test_schedule_setup_replaces_the_entire_prompt_and_preserves_existing_timing(self):
+        new = schedule_request("   Bring the tripod   ", "tomorrow at 9 AM America/Toronto")
+        self.assertIn("Hermes handoff: Bring the tripod", new)
+        self.assertIn(TRIGGER_PROMPT, new)
+        self.assertIn("Do not run it now", new)
+        updated = schedule_request("Bring the tripod", schedule_id="alarm")
+        self.assertIn("existing scheduled task with ID \"alarm\" in place", updated)
+        self.assertIn("Keep its ID, timing, time zone, enabled state, and recurrence", updated)
+        with self.assertRaises(ValueError):
+            schedule_request("Bring the tripod", "tomorrow", "alarm")
+
 
     def quiet_for(self, seconds):
         with self.store.connection() as db:
@@ -678,7 +726,8 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("muse_handoff", guide)
         self.assertIn("Handle routine work you can complete yourself", guide)
         self.assertIn("Send only the browser steps through grok_bot_send", guide)
-        self.assertIn("Use Muse for research, complex work and scheduled tasks", guide)
+        self.assertIn("Use Muse for research and complex work", guide)
+        self.assertIn("Set up every Muse reminder and routine with muse_schedule", guide)
         self.assertIn("A watcher is a project in the Watcher status", guide)
         self.assertIn("Silicon Dot", guide)
         self.assertIn("target desktop", guide)
@@ -788,7 +837,7 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         # Hermes evaluates a check_fn before the Slack adapter wires the relay and keeps the result.
         self.assertEqual(sorted(self.tools), [
             "muse_app", "muse_app_methods", "muse_approvals", "muse_approve", "muse_file",
-            "muse_handoff", "muse_reply", "muse_wait", "slack_task_progress"])
+            "muse_handoff", "muse_reply", "muse_schedule", "muse_wait", "slack_task_progress"])
         self.assertTrue(all("check_fn" not in options for options in self.tool_options.values()))
 
     async def test_peer_messages_reach_muse_once_and_hermes_updates_one_channel_message(self):
@@ -1535,6 +1584,8 @@ class MuseAppToolTests(ToolTests):
             200, "application/json", b'{"approval": {"approval_id": "ap-1", "status": "allowed"}}')
         self.gateway.answers[("GET", "/tasks")] = (
             200, "application/json", b'{"ok": true, "result": {"schedules": []}}')
+        self.gateway.answers[("GET", "/tasks/runs?limit=100")] = (
+            200, "application/json", b'{"runs": []}')
         self.gateway.answers[("GET", "/skills")] = (
             200, "application/json", b'{"ok": false, "error": {"code": "not_ready"}}')
         self.gateway.answers[("GET", "/media/raw/workspace/a.png")] = (200, "image/png", b"\x89PNG")
@@ -1625,4 +1676,6 @@ class MuseAppToolTests(ToolTests):
 
     async def test_a_missing_login_says_how_to_sign_in(self):
         self.gateway.login = "ended"
+        # A previously issued gateway token can still be used until it expires.
+        self.adapter._hermes22muse_relay.web.tokens = None
         self.assertIn("Leon has to sign in again", self.call("muse_approvals")["error"])

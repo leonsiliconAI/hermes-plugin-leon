@@ -16,6 +16,7 @@ from .muse import Muse
 from .museweb import ROUTES, MuseApiError, MuseLoginRequired, MuseWeb, MuseWebError
 from .progress import wire_progress_delivery
 from .relay import Relay, Slack, Store, operation_id
+from .schedules import schedule_request
 from .turns import Turns
 
 LOG = logging.getLogger(__name__)
@@ -50,6 +51,25 @@ HANDOFF_SCHEMA = {
             "wait_seconds": WAIT_SECONDS,
         },
         "required": ["task"],
+        "additionalProperties": False,
+    },
+}
+SCHEDULE_SCHEMA = {
+    "name": "muse_schedule",
+    "description": (
+        "Set up a trigger-only reminder or recurring schedule in Muse. Each scheduled run goes "
+        "to #feed-muse and a Linear Watcher for Hermes. Keep the work instructions in the Watcher. "
+        "For an existing schedule, copy its work instructions to its Watcher before updating it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "Short label that can appear in Slack."},
+            "when": {"type": "string", "description": "Timing, time zone and recurrence for a new schedule."},
+            "schedule_id": {"type": "string", "description": "Existing Muse schedule to convert in place."},
+            "wait_seconds": WAIT_SECONDS,
+        },
+        "required": ["title"],
         "additionalProperties": False,
     },
 }
@@ -456,6 +476,15 @@ def register(ctx):
     def handoff_tool(args, **_):
         return run_tool("handoff", args)
 
+    def schedule_tool(args, **_):
+        if not app().signed_in():
+            return json.dumps({"error": "Hermes needs its muse.ai login to read scheduled runs."})
+        try:
+            task = schedule_request(args.get("title"), args.get("when"), args.get("schedule_id"))
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)})
+        return run_tool("handoff", {"task": task, "wait_seconds": args.get("wait_seconds", WAIT)})
+
     def reply_tool(args, **_):
         return run_tool("reply", args)
 
@@ -692,7 +721,8 @@ def register(ctx):
 
     # No check_fn: Hermes evaluates it once at startup, before the Slack adapter wires the relay,
     # and keeps the tools hidden. Without the relay the tools return an error instead.
-    for schema, handler, emoji in ((HANDOFF_SCHEMA, handoff_tool, "🪄"), (REPLY_SCHEMA, reply_tool, "↩️"),
+    for schema, handler, emoji in ((HANDOFF_SCHEMA, handoff_tool, "🪄"), (SCHEDULE_SCHEMA, schedule_tool, "⏰"),
+                                   (REPLY_SCHEMA, reply_tool, "↩️"),
                                    (WAIT_SCHEMA, wait_tool, "⏳"), (APPROVALS_SCHEMA, approvals_tool, "🛡️"),
                                    (APPROVE_SCHEMA, approve_tool, "✅"), (METHODS_SCHEMA, methods_tool, "🧭"),
                                    (APP_SCHEMA, app_method_tool, "🎛️"), (FILE_SCHEMA, file_tool, "📎"),

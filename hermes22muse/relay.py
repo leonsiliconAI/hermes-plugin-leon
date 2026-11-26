@@ -12,6 +12,7 @@ from contextlib import closing, contextmanager
 from .._bridge import acall_with_host, call
 from .muse import STAMP
 from .progress import Progress
+from .schedules import ScheduleRuns
 
 LOG = logging.getLogger(__name__)
 MAX_WORKERS = 8
@@ -24,6 +25,7 @@ LOGIN_CHECK = 900
 # Leon's Routine projects in Linear follow his routines in Muse (his rule, 2026-11-25).
 ROUTINES_PUSH = 600
 ROUTINES_URL = "https://autolinear.leonsilicon.ai/routines"
+SCHEDULE_POLL = 60
 # autolinear's Worker, which slack22linear's reminders go through (HERMES22MUSE_AUTOLINEAR_URL
 # overrides it). The relay reports the issue channels with a running Hermes turn every HEARTBEAT
 # seconds, so a turn a gateway restart dropped gets a reminder (LEON-509, 2026-11-25).
@@ -100,6 +102,7 @@ class Store:
             if "nudged" not in columns:
                 db.execute("ALTER TABLE handoffs ADD COLUMN nudged INTEGER NOT NULL DEFAULT 0")
         self.progress = Progress(self.connection)
+        self.schedule_runs = ScheduleRuns(self.connection)
 
     @contextmanager
     def connection(self):
@@ -466,6 +469,36 @@ class Slack:
         ts = response["ts"]
         return ts, (job["id"], channel, ts) if thread is None else None
 
+    async def schedule_feed(self):
+        """Find the public, local #feed-muse Hermes has joined."""
+        matches = []
+        for team, client in self.adapter._team_clients.items():
+            cursor = None
+            while True:
+                page = await asyncio.wait_for(client.conversations_list(
+                    types="public_channel", exclude_archived=True, limit=200, cursor=cursor,
+                ), 15)
+                matches.extend((team, channel["id"]) for channel in page.get("channels", [])
+                               if channel.get("name") == "feed-muse" and channel.get("is_member")
+                               and not channel.get("is_ext_shared"))
+                cursor = (page.get("response_metadata") or {}).get("next_cursor")
+                if not cursor:
+                    break
+        if len(matches) != 1:
+            raise RuntimeError("Hermes needs to be in one public, local #feed-muse channel")
+        return matches[0]
+
+    async def post_schedule(self, team, channel, run):
+        client = self.client({"team": team, "channel": channel})
+        response = await asyncio.wait_for(client.chat_postMessage(
+            channel=channel, text=run["text"], mrkdwn=False, link_names=False,
+            unfurl_links=False, unfurl_media=False,
+            client_msg_id=operation_id("schedule", run["schedule_id"], run["run_id"]),
+        ), 15)
+        if not response.get("ok") or not response.get("ts") or response.get("channel") != channel:
+            raise RuntimeError("Slack returned no matching schedule receipt")
+        return response["ts"]
+
 
 class Relay:
     def __init__(self, store, slack, muse, actor, web=None, turns=None, post=None):
@@ -547,6 +580,37 @@ class Relay:
                 LOG.warning("hermes22muse: could not send Muse's routines to Linear (%s)",
                             exc or type(exc).__name__)
             await asyncio.sleep(ROUTINES_PUSH)
+
+    async def poll_schedule_runs(self, now=None):
+        if not self.web.signed_in():
+            return
+        now = time.time() if now is None else now
+        schedules, runs = await asyncio.to_thread(self.web.calls, [
+            ("tasks.list", None), ("tasks.runs", {"limit": 100}),
+        ])
+        schedules, runs = schedules["body"].get("schedules"), runs["body"].get("runs")
+        if not isinstance(schedules, list) or not isinstance(runs, list):
+            raise ValueError("Muse did not return its schedules and runs")
+        self.store.schedule_runs.record(schedules, runs, now)
+
+    async def publish_schedule_runs(self):
+        pending = self.store.schedule_runs.pending()
+        if pending:
+            team, channel = await self.slack.schedule_feed()
+            for run in pending:
+                ts = await self.slack.post_schedule(team, channel, run)
+                self.store.schedule_runs.delivered(run, ts)
+
+    async def watch_schedule_runs(self):
+        # Let the gateway and its Slack workspace finish connecting before the first poll.
+        await asyncio.sleep(SCHEDULE_POLL)
+        while True:
+            for operation in (self.poll_schedule_runs, self.publish_schedule_runs):
+                try:
+                    await asyncio.wait_for(operation(), 120)
+                except Exception as exc:
+                    LOG.warning("hermes22muse: %s failed (%s)", operation.__name__, type(exc).__name__)
+            await asyncio.sleep(SCHEDULE_POLL)
 
     async def post_autolinear(self, path, payload):
         """POST to autolinear's Worker with Hermes's token. Its HTTP status, or None without a token."""
@@ -712,6 +776,7 @@ class Relay:
                 tasks.create_task(self.publish_progress())
                 if self.web is not None:
                     tasks.create_task(self.sync_routines())
+                    tasks.create_task(self.watch_schedule_runs())
                 if self.turns is not None:
                     tasks.create_task(self.watch_turns())
                 while True:

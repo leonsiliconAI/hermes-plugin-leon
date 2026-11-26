@@ -7,5 +7,6 @@ export * as slackAlwaysReact from "#features/slack_always_react";
 export * as slackAsLeonGuard from "#features/slack_as_leon_guard";
 export * as slackAutoJoin from "#features/slack_auto_join";
 export * as slackFlatReplies from "#features/slack_flat_replies";
+export * as slackLostTurns from "#features/slack_lost_turns";
 export * as slackOwnThreadReply from "#features/slack_own_thread_reply";
 export * as slack22orca from "#features/slack22orca";

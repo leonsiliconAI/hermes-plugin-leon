@@ -4,7 +4,7 @@ version: 1.0.0
 description: >
   Leon's Hermes setup in one plugin: autolinear intake, Dropbox task memory, the Grok box browser,
   hermes22muse, and the Slack behaviours (👀 everywhere, the as-Leon guard, auto-join, flat replies,
-  own-thread replies, slack22orca). Each was a separate plugin until 2026-11-26.
+  no pause after a lost turn, own-thread replies, slack22orca). Each was a separate plugin until 2026-11-26.
 author: leonsilicon
 provides_tools:
   - dropbox_task_memory_read

@@ -130,6 +130,29 @@ def test_bots_dms_and_reaction_turns_keep_their_threads(adapter):
     assert not any(plugin.FLAG in e for e in (bot, dm, reaction))
 
 
+def test_autolinears_top_level_messages_join_the_channels_conversation(adapter, monkeypatch):
+    """LEON-494 (2026-11-26): Autolinear's reminder, answered in a thread of its own, got ``stay``
+    from a session that had never seen Leon's "mark as done"."""
+    autolinear_bot = "U0AUTOLIN01"
+    monkeypatch.setenv(plugin.AUTOLINEAR_BOT_ENV, autolinear_bot)
+    plugin.wire(None, adapter)
+    ts = "1794000000.000030"
+    reminder = _message(ts, user=autolinear_bot, bot_id="B0AUTOLIN1",
+                        text=f"<@{BOT}> Your turn here is over, but you haven't told me what to do")
+    assert adapter._session_thread_ts(reminder, ts, False, {}) is None, "the channel's session"
+    assert reminder[plugin.FLAG] is True
+
+    in_thread = _message("1794000000.000031", user=autolinear_bot, bot_id="B0AUTOLIN1",
+                         thread_ts="1794000000.000029")
+    assert adapter._session_thread_ts(in_thread, "1794000000.000031", False, {}) == "1794000000.000029"
+    assert plugin.FLAG not in in_thread
+
+    monkeypatch.delenv(plugin.AUTOLINEAR_BOT_ENV)
+    unknown = _message("1794000000.000032", user=autolinear_bot, bot_id="B0AUTOLIN1")
+    assert adapter._session_thread_ts(unknown, "1794000000.000032", False, {}) == "1794000000.000032"
+    assert plugin.FLAG not in unknown
+
+
 @pytest.mark.parametrize("flat_first", [True, False])
 @pytest.mark.parametrize("task_progress_enabled", [True, False])
 @pytest.mark.asyncio

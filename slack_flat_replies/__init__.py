@@ -16,6 +16,11 @@ so Hermes keeps one conversation per channel: an issue channel reads as one exch
 Left as they were: thread replies (answered in their thread), DMs and group DMs, messages from bots
 (slack22linear's pings, Gmail feed wake-ups), and reaction-triggered turns.
 
+Autolinear's bot (``AUTOLINEAR_BOT_USER_ID``) is the one bot answered in the channel: its reminders
+("you haven't told me what to do with LEON-…") and its handoffs of a message Hermes missed are about
+the channel's own conversation. In a thread of their own, a fresh session answered them without the
+request or the turn they were about (LEON-494, 2026-11-26: ``stay`` for Leon's "mark as done").
+
 autolinear's plugin calls ``_session_thread_ts`` for the copy of Leon's message it moves into a new
 issue channel, so that copy is answered at the top of the channel too, whichever plugin is wired
 first. It fails closed: without the seams it relies on, it logs a warning and changes nothing.
@@ -25,6 +30,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 
 from .._bridge import call
 
@@ -33,13 +39,15 @@ logger = logging.getLogger(__name__)
 
 _PATCHED_ATTR = "_slack_flat_replies_patched"
 FLAG = "_hermes_no_thread_response"
+AUTOLINEAR_BOT_ENV = "AUTOLINEAR_BOT_USER_ID"
 
 
 def _flat(adapter, event, ts, is_dm) -> bool:
-    """A top-level message from a person, in a channel."""
+    """A top-level message from a person or Autolinear's bot, in a channel."""
     return isinstance(event, dict) and call(
         __file__, "shouldReplyFlat", event, ts, is_dm,
         lambda: adapter._event_declares_bot_sender(event),
+        os.environ.get(AUTOLINEAR_BOT_ENV, "").strip(),
     )
 
 

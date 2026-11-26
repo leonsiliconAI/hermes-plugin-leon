@@ -16,6 +16,7 @@ Each feature is a folder here, with its own README, `__init__.py` and `policy.ts
 | [slack-as-leon-guard](slack_as_leon_guard/README.md)       | Ignores Hermes's own posts as Leon and labels agents' reports                                        |
 | [slack-auto-join](slack_auto_join/README.md)               | Keeps Hermes in every Slack channel                                                                  |
 | [slack-flat-replies](slack_flat_replies/README.md)         | Answers top-level Slack messages in the channel, not a thread                                        |
+| [slack-lost-turns](slack_lost_turns/README.md)             | Keeps a Slack conversation going when Hermes restarts in the middle of one of its turns              |
 | [slack-own-thread-reply](slack_own_thread_reply/README.md) | `slack_reply_own_thread`, for threads Hermes's own bot started                                       |
 | [slack22orca](slack22orca/README.md)                       | Delegates Slack tasks to Orca and relays the answers                                                 |
 
@@ -25,7 +26,7 @@ A feature keeps everything it had as a plugin: its tools and toolsets, its `/orc
 
 `register` in [`__init__.py`](__init__.py) loads the features one at a time:
 
-- **In a fixed order**, `FEATURES`, which is the order Hermes loaded the separate plugins in (alphabetical by name). Seven features wrap Hermes's Slack adapter, and Hermes runs their handler factories in the order they were registered, so changing the order can change what they do.
+- **In a fixed order**, `FEATURES`, which is the order Hermes loaded the separate plugins in (alphabetical by name). Seven features wrap Hermes's Slack adapter (slack-lost-turns wraps Hermes's lost-turn settling instead), and Hermes runs their handler factories in the order they were registered, so changing the order can change what they do.
 - **A feature that fails stays out.** Each feature registers through a context that holds its registrations until its own `register` returns, then hands them to Hermes. One that raises registers nothing, and the gateway log shows `leon: <feature> didn't load; the other features still run` with the traceback. The rest load as before. Hermes did this for each plugin when they were separate.
 - **`LEON_PLUGIN_DISABLED`** in `.env` turns features off, by name or folder, separated by commas (`slack-auto-join,hermes22muse`). It replaces `hermes plugins disable <name>`. Restart the gateway after changing it.
 

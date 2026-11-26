@@ -16,7 +16,7 @@ mirror for all of them.
   ``hermes plugins disable <name>``.
 
 Hermes's load deadline (``plugins.load_timeout_seconds``, 10 s by default) now covers all of them
-at once. Importing and registering all ten took 0.03 s on 2026-11-26.
+at once. Importing and registering all ten (before slack-lost-turns) took 0.03 s on 2026-11-26.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ FEATURES = (
     "slack_as_leon_guard",
     "slack_auto_join",
     "slack_flat_replies",
+    "slack_lost_turns",
     "slack_own_thread_reply",
     "slack22orca",
 )

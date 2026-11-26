@@ -100,6 +100,34 @@ def test_a_registration_hermes_refuses_releases_the_rest_of_that_feature(monkeyp
     assert "leon: tools didn't load" in caplog.text
 
 
+def test_every_features_slack_factory_is_wired(monkeypatch):
+    # Hermes skips a factory whose (plugin, __qualname__) it already wired; most features call
+    # theirs `wire`, and on 2026-11-26 only the first of them was wired.
+    monkeypatch.delenv(leon.DISABLED_ENV, raising=False)
+    wired = []
+
+    def feature(label):
+        def wire(native, adapter):
+            wired.append((label, native, adapter))
+
+        wire.__qualname__ = "wire"
+        return lambda ctx: ctx.register_platform_handler("slack", wire)
+
+    factories = []
+    ctx = types.SimpleNamespace(register_platform_handler=lambda platform, factory: factories.append(factory),
+                                manifest=types.SimpleNamespace(name="leon"))
+    _features(monkeypatch, first=feature("first"), second=feature("second"))
+    leon.register(ctx)
+    seen = set()
+    for factory in factories:  # BasePlatformAdapter._wire_plugin_handlers
+        key = ("leon", factory.__qualname__)
+        if key not in seen:
+            seen.add(key)
+            factory("native", "adapter")
+    assert wired == [("first", "native", "adapter"), ("second", "native", "adapter")]
+    assert [factory.__qualname__ for factory in factories] == ["first.wire", "second.wire"]
+
+
 def test_leon_plugin_disabled_skips_a_feature(monkeypatch):
     monkeypatch.setenv(leon.DISABLED_ENV, "slack-auto-join")
     _features(monkeypatch, slack_auto_join=pytest.fail, slack_flat_replies=lambda ctx: ctx.register_tool("flat"))

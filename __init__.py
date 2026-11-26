@@ -21,6 +21,7 @@ at once. Importing and registering all ten took 0.03 s on 2026-11-26.
 
 from __future__ import annotations
 
+import functools
 import importlib
 import logging
 import os
@@ -74,6 +75,8 @@ class FeatureContext:
         handles = []
         try:
             for name, args, kwargs in self._held:
+                if name == "register_platform_handler":
+                    args, kwargs = self._own_factory(args, kwargs)
                 handles.append(getattr(self._ctx, name)(*args, **kwargs))
         except Exception:
             for handle in reversed(handles):
@@ -84,6 +87,25 @@ class FeatureContext:
                     except Exception:
                         LOG.debug("leon: couldn't release a %s registration", self._feature, exc_info=True)
             raise
+
+    def _own_factory(self, args: tuple, kwargs: dict) -> tuple[tuple, dict]:
+        """Hermes wires a plugin's platform handler factories once per ``(plugin, __qualname__)``
+        (``BasePlatformAdapter._wire_plugin_handlers``). Most features call theirs ``wire``, so in one
+        plugin all but the first were skipped (2026-11-26). Each gets its feature's name."""
+        if "factory" in kwargs:
+            kwargs = {**kwargs, "factory": _feature_factory(self._feature, kwargs["factory"])}
+        elif len(args) >= 2:
+            args = (args[0], _feature_factory(self._feature, args[1]), *args[2:])
+        return args, kwargs
+
+
+def _feature_factory(feature: str, factory):
+    @functools.wraps(factory)
+    def feature_factory(*args, **kwargs):
+        return factory(*args, **kwargs)
+
+    feature_factory.__qualname__ = f"{feature}.{getattr(factory, '__qualname__', 'factory')}"
+    return feature_factory
 
 
 def register(ctx) -> None:

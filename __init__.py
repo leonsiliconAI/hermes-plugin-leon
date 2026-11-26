@@ -1,62 +1,103 @@
-"""Give every Slack message Hermes processes the 👀 → ✅/❌ reaction lifecycle.
+"""Leon's Hermes plugin: every part of his Hermes setup except autodeploy, in one install.
 
-Hermes's Slack adapter registers a message for reactions only when it is a 1:1 DM or @mentions
-the bot (``SlackAdapter._handle_slack_message_impl``: ``if (is_one_to_one_dm or is_mentioned)``).
-With ``slack.require_mention: false`` Hermes answers unmentioned channel and thread messages too,
-but they never get 👀. This plugin wraps ``_build_message_event`` on the live adapter, which runs
-only after every gate (auth, channel, mention, bot) has accepted the message, and registers the
-message for the adapter's own reaction lifecycle. The adapter then adds 👀 when processing starts
-(including queued and redirected follow-ups) and swaps it for ✅ or ❌ when processing ends.
+Each feature is a subpackage, the separate plugin it was until 2026-11-26, with its own
+``register(ctx)``. Hermes installs, reloads and updates them together, and autodeploy follows one
+mirror for all of them.
 
-An agent's post in a task thread (slack-as-leon's marker with second group ``b075`` for a Grok bot or
-``c0de`` for a Codex session; see the ``slack-as-leon-guard`` plugin) gets no reactions: it is posted as Leon, and slack22linear reads
-Hermes's ✅ on Leon's message in an issue channel as "Hermes answered Leon", which can close the
-issue or ping him. Only Leon's own messages should do that.
+- **Order.** Features register in ``FEATURES`` order, which is the order Hermes loaded the separate
+  plugins in (alphabetical by name). Seven of them wrap the same Slack adapter, and Hermes runs their
+  handler factories in the order they were registered, so the order is part of what they do.
+- **A feature that fails stays out.** A feature registers through a context that holds its
+  registrations until its ``register`` returns, then hands them to Hermes. One that raises is
+  logged and registers nothing, and the rest load as before. Hermes did that for each plugin when
+  they were separate.
+- **Turning one off.** ``LEON_PLUGIN_DISABLED`` in ``.env`` lists features to skip, by name
+  (``slack-auto-join``) or folder (``slack_auto_join``), separated by commas. It replaces
+  ``hermes plugins disable <name>``.
 
-It lives in ``$HERMES_HOME/plugins`` so it survives Hermes Cloud restarts and image updates, and it
-fails closed: if the adapter internals it relies on disappear, it logs a warning and does nothing.
+Hermes's load deadline (``plugins.load_timeout_seconds``, 10 s by default) now covers all of them
+at once. Importing and registering all ten took 0.03 s on 2026-11-26.
 """
 
 from __future__ import annotations
 
-import functools
+import importlib
 import logging
+import os
+import time
 
-from ._bridge import call
+LOG = logging.getLogger(__name__)
+
+FEATURES = (
+    "autolinear",
+    "dropbox_task_memory",
+    "grok_box_browser",
+    "hermes22muse",
+    "slack_always_react",
+    "slack_as_leon_guard",
+    "slack_auto_join",
+    "slack_flat_replies",
+    "slack_own_thread_reply",
+    "slack22orca",
+)
+DISABLED_ENV = "LEON_PLUGIN_DISABLED"
 
 
-logger = logging.getLogger(__name__)
+def disabled_features(value: str | None = None) -> set[str]:
+    """Folders of the features ``LEON_PLUGIN_DISABLED`` turns off."""
+    if value is None:
+        value = os.environ.get(DISABLED_ENV, "")
+    return {name.strip().replace("-", "_") for name in value.split(",") if name.strip()}
 
-_PATCHED_ATTR = "_slack_always_react_patched"
 
-def wire(native, adapter) -> None:
-    """``register_platform_handler`` factory: patch this adapter instance once."""
-    if getattr(adapter, _PATCHED_ATTR, False):
-        return
-    build = getattr(adapter, "_build_message_event", None)
-    track = getattr(adapter, "_track_reacting_message", None)
-    enabled = getattr(adapter, "_reactions_enabled", None)
-    if not (callable(build) and callable(track) and callable(enabled)):
-        logger.warning(
-            "slack-always-react: Slack adapter internals changed; 👀 stays limited to DMs and mentions")
-        return
+class FeatureContext:
+    """Hermes's ``ctx`` for one feature. ``register_*`` calls wait in order until ``publish``;
+    everything else reaches Hermes directly."""
 
-    @functools.wraps(build)
-    async def build_and_track(event, *args, **kwargs):
-        msg_event = await build(event, *args, **kwargs)
+    def __init__(self, ctx, feature: str):
+        self._ctx = ctx
+        self._feature = feature
+        self._held: list[tuple[str, tuple, dict]] = []
+
+    def __getattr__(self, name):
+        attribute = getattr(self._ctx, name)
+        if not (name.startswith("register_") and callable(attribute)):
+            return attribute
+
+        def hold(*args, **kwargs):
+            self._held.append((name, args, kwargs))
+
+        return hold
+
+    def publish(self) -> None:
+        """Hand the held registrations to Hermes. If Hermes refuses one, release those it took."""
+        handles = []
         try:
-            ts = kwargs.get("ts")
-            if call(__file__, "shouldTrack", event or {}, ts, msg_event is not None,
-                    bool(ts and msg_event is not None and enabled())):
-                track(str(kwargs.get("team_id") or ""), ts)
+            for name, args, kwargs in self._held:
+                handles.append(getattr(self._ctx, name)(*args, **kwargs))
         except Exception:
-            logger.warning("slack-always-react: could not track ts=%s", kwargs.get("ts"), exc_info=True)
-        return msg_event
-
-    adapter._build_message_event = build_and_track
-    setattr(adapter, _PATCHED_ATTR, True)
-    logger.info("slack-always-react: 👀 enabled for every Slack message Hermes processes")
+            for handle in reversed(handles):
+                dispose = getattr(handle, "dispose", None)
+                if callable(dispose):
+                    try:
+                        dispose()
+                    except Exception:
+                        LOG.debug("leon: couldn't release a %s registration", self._feature, exc_info=True)
+            raise
 
 
 def register(ctx) -> None:
-    ctx.register_platform_handler("slack", wire)
+    disabled = disabled_features()
+    for feature in FEATURES:
+        if feature in disabled:
+            LOG.info("leon: %s is off (%s)", feature, DISABLED_ENV)
+            continue
+        started = time.monotonic()
+        held = FeatureContext(ctx, feature)
+        try:
+            importlib.import_module(f"{__name__}.{feature}").register(held)
+            held.publish()
+        except Exception:
+            LOG.exception("leon: %s didn't load; the other features still run", feature)
+            continue
+        LOG.debug("leon: %s loaded in %.2f s", feature, time.monotonic() - started)

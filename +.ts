@@ -1,1 +1,11 @@
-export { pluginDirectory, pluginFiles, pluginName } from "#plugin";
+export { disabledEnv, pluginDirectory, pluginName } from "#plugin";
+export * as autolinear from "#features/autolinear";
+export * as dropboxTaskMemory from "#features/dropbox_task_memory";
+export * as grokBoxBrowser from "#features/grok_box_browser";
+export * as hermes22muse from "#features/hermes22muse";
+export * as slackAlwaysReact from "#features/slack_always_react";
+export * as slackAsLeonGuard from "#features/slack_as_leon_guard";
+export * as slackAutoJoin from "#features/slack_auto_join";
+export * as slackFlatReplies from "#features/slack_flat_replies";
+export * as slackOwnThreadReply from "#features/slack_own_thread_reply";
+export * as slack22orca from "#features/slack22orca";

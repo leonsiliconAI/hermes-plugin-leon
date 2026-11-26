@@ -14,11 +14,23 @@ from gateway.platforms.base import MessageEvent, SessionSource
 from gateway.platforms.event import MessageType, ProcessingOutcome
 from plugins.platforms.slack.adapter import SlackAdapter
 
-_spec = importlib.util.spec_from_file_location(
-    "slack_always_react", pathlib.Path(__file__).resolve().parents[1] / "__init__.py")
-plugin = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = plugin
-_spec.loader.exec_module(plugin)
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _feature(folder: str, name: str | None = None):
+    """A fresh copy of one of the leon plugin's features, imported under ``leon`` as Hermes does."""
+    if "leon" not in sys.modules:
+        root = importlib.util.spec_from_file_location("leon", _ROOT / "__init__.py")
+        sys.modules["leon"] = importlib.util.module_from_spec(root)
+        root.loader.exec_module(sys.modules["leon"])
+    spec = importlib.util.spec_from_file_location(f"leon.{name or folder}", _ROOT / folder / "__init__.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+plugin = _feature("slack_always_react")
 
 
 @pytest.fixture()

@@ -1,5 +1,5 @@
 [project]
-name = "hermes-plugin-slack-always-react"
-version = "1.0.1"
+name = "hermes-plugin-leon"
+version = "1.0.0"
 requires-python = ">=3.11"
 dependencies = ["pygls==2.1.1"]

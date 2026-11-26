@@ -1,7 +1,16 @@
-name: slack-always-react
-label: Slack always react
-version: 1.0.1
+name: leon
+label: Leon
+version: 1.0.0
 description: >
-  Adds Hermes's 👀 → ✅/❌ reaction lifecycle to every Slack message Hermes processes,
-  not only DMs and @mentions.
+  Leon's Hermes setup in one plugin: autolinear intake, Dropbox task memory, the Grok box browser,
+  hermes22muse, and the Slack behaviours (👀 everywhere, the as-Leon guard, auto-join, flat replies,
+  own-thread replies, slack22orca). Each was a separate plugin until 2026-11-26.
 author: leonsilicon
+provides_tools:
+  - dropbox_task_memory_read
+  - dropbox_task_memory_list
+  - dropbox_task_memory_write
+  - dropbox_task_memory_move
+  - slack_reply_own_thread
+provides_browser_providers:
+  - grok-box

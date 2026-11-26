@@ -11,7 +11,7 @@ function clientMessageId(event) {
 function agentGroup(id) {
 	if (typeof id === "string") return Object.values(groups).find((group) => id.startsWith("de1e6a7e-" + group + "-"));
 }
-// policy.ts
+// slack_always_react/policy.ts
 function shouldTrack(event, ts, accepted, enabled) {
 	return Boolean(accepted && ts && enabled && !(event._hermes_reaction || event._hermes_force_process || agentGroup(clientMessageId(event))));
 }

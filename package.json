@@ -1,6 +1,6 @@
 {
   "name": "@-/com.leonsilicon.hermes.plugins.slack-always-react",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Hermes plugin: 👀 → ✅/❌ reactions on every Slack message Hermes processes.",
   "type": "module",

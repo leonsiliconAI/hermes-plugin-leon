@@ -1,6 +1,6 @@
 name: slack-always-react
 label: Slack always react
-version: 1.0.0
+version: 1.0.1
 description: >
   Adds Hermes's 👀 → ✅/❌ reaction lifecycle to every Slack message Hermes processes,
   not only DMs and @mentions.

@@ -76,6 +76,8 @@ export function grokInstructions() {
   return (
     "A Slack reply in this thread goes directly to the Grok task bot. Respond here " +
     "when the bot needs an answer or follow-up. Avoid acknowledgement-only messages. " +
+    "The bot receives your reply as Leon's own message, without your name, so write it " +
+    "as he would: in the first person, without calling him Leon. " +
     "Once you verify the task is finished, call grok_task_complete with this exact " +
     "channel and Slack thread root to retire the task bot before posting your final summary."
   );

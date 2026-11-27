@@ -1140,6 +1140,50 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         await self.adapter.send(CHANNEL, instruction, reply_to=in_thread, metadata=interim)
         self.assertEqual(sent[-1], (CHANNEL, instruction, in_thread, interim))
 
+    async def test_an_answer_that_needs_leon_is_a_new_message_in_the_channel(self):
+        """Leon, 2026-11-27: "if hermes needs my response on something, instead of just updating the original
+        message, it should send a new one in the task channel so the ping actually reaches me instead of an edit"."""
+        root = (await self.build_turn()).source.thread_id
+        route, progress = (TEAM, CHANNEL, root), self.store.progress
+        thread = {"thread_id": root, "slack_team_id": TEAM}
+        event = SimpleNamespace(is_command=lambda: False)
+        publisher = Slack(self.adapter, BOT_TOKEN)
+        sent = self.adapter.sent
+
+        # A mention in code notifies nobody, so that answer still goes onto the card.
+        quoted = f"Hermes writes `<@{OWNER}>` to mention you.\n\n@Autolinear stay"
+        await self.adapter.send_final_ledgered(event, "session", quoted, {**thread, "notify": True}, reply_to=REQUEST)
+        self.assertEqual(sent, [])
+        self.assertEqual(progress.read(route)["answer"], quoted)
+
+        question = f"<@{OWNER}> The newer order is #9884. Approve this email?\n\n@Autolinear move leon"
+        result, _ = await self.adapter.send_final_ledgered(event, "session", question, {**thread, "notify": True},
+                                                           reply_to=REQUEST)
+        self.assertEqual(result.message_id, "1795000300.000001")
+        self.assertEqual(sent, [(CHANNEL, question, None, {"slack_team_id": TEAM, "notify": True})])
+        await progress.flush(publisher)
+        update = self.client.chat_update.await_args.kwargs
+        self.assertEqual(update["ts"], root)
+        note = f"Asked you in <https://app.slack.com/archives/{CHANNEL}/p1795000300000001|a new message> in this channel."
+        self.assertTrue(update["text"].endswith("*Update from Hermes*\n" + note))
+        # The card shows neither the mention nor the command, which Autolinear reads from the new message.
+        self.assertNotIn(OWNER, update["text"])
+        self.assertNotIn("@Autolinear", update["text"])
+
+        # The same holds for an answer to Leon's reply in the card's thread, a streamed one included.
+        in_thread = "1795000003.000001"
+        await self.adapter.send(CHANNEL, f"Which card, <@{OWNER}|leon>?", metadata={
+            **thread, "notify": True, "reply_to_message_id": in_thread})
+        self.assertEqual(sent[1], (CHANNEL, f"Which card, <@{OWNER}|leon>?", None,
+                                   {"slack_team_id": TEAM, "notify": True, "reply_to_message_id": in_thread}))
+        self.assertIn("p1795000300000002|a new message", progress.read(route)["answer"])
+
+        # A mention of someone else stays on the card.
+        await self.adapter.send_final_ledgered(event, "session", "Sent it to <@U002>.", {**thread, "notify": True},
+                                               reply_to=in_thread)
+        self.assertEqual(len(sent), 2)
+        self.assertEqual(progress.read(route)["answer"], "Sent it to <@U002>.")
+
     async def test_cards_from_before_plans_keep_working(self):
         with self.store.connection() as db:
             db.execute("DROP TABLE progress")

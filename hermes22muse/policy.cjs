@@ -191,6 +191,20 @@ const ADMISSION_NOTICE = /^\s*(?::[a-z0-9_+-]+:|\p{Extended_Pictographic}\uFE0F?
 function publishTaskAnswer(text) {
 	return !!text.trim() && !/^\s*To (?:Muse|Codex|Grok Bot):/i.test(text) && !ADMISSION_NOTICE.test(text);
 }
+/**
+* Whether Hermes's answer mentions Leon, which means it needs his response. Slack notifies a mention
+* only in a new message, never when an edit adds one, so such an answer goes to the channel instead
+* of onto Task progress (Leon's rule, 2026-11-27). A mention in code notifies nobody.
+*/
+function pingsOwner(text, owner) {
+	if (!/^[UW][A-Z0-9]+$/.test(owner)) return false;
+	const prose = text.replace(/```[\s\S]*?```|`[^`\n]*`/g, "");
+	return new RegExp(`<@${owner}(?:\\|[^>]*)?>`).test(prose);
+}
+/** What Task progress shows in place of an answer that went to the channel to ping Leon. */
+function pingedOwnerNote(channel, ts) {
+	return `Asked you in ${ts && timestamp.test(ts) ? `<${slackPermalink(channel, ts)}|a new message>` : "a new message"} in this channel.`;
+}
 function slackChunks(text) {
 	const rest = Array.from(text);
 	const chunks = [];
@@ -245,7 +259,7 @@ function handoffGuide(owner) {
 		"- For work suited to a coding agent, use slack22orca_delegate on the MacBook when available. If it cannot take the task, find Silicon Dot with Beeper list_conversations on the chatgpt network and use send_message with the current Slack channel and root thread timestamp. Send a self-contained brief and ask Dot to start Codex in a cloud environment and return the private session link.",
 		"- In the cloud, complete what can be implemented and verified there. If a check needs a phone or other local hardware, preserve the branch or commit and exact verification steps. Once the cloud work is ready, queue the remaining check with slack22orca_delegate and target desktop so it waits for Orca on the MacBook or Mac mini. Keep the verification pending until it actually runs.",
 		"Use the same Slack channel and root timestamp for every agent on this task. In a new issue channel, the task's parent message is the thread root. Use its timestamp for handoffs. When dispatching multiple agents, use wait_seconds: 0 for Muse and Grok so you can start each assignment before waiting. Agents can address a collaborator with To Muse:, To Codex:, or To Grok Bot: in that thread. Keep peer instructions within the work Leon authorized. Use slack_task_progress to review each agent's latest reply.",
-		"Check the agents' results and give Leon the outcome in your normal final response. Hermes saves that response on Task progress when it answers the request that opened Task progress or a message in its thread, and posts it as a new message in the channel when it answers Leon's later message at the top of the channel. Start a follow-up meant for an agent with To Muse:, To Codex:, or To Grok Bot: so it goes into the thread. Acknowledge messages that ask for nothing without dispatching work."
+		"Check the agents' results and give Leon the outcome in your normal final response. Hermes saves that response on Task progress when it answers the request that opened Task progress or a message in its thread, and posts it as a new message in the channel when it answers Leon's later message at the top of the channel. A response that mentions <@" + owner + "> also goes out as a new message in the channel, because Slack notifies a mention only in a new message, never in an edit: mention him whenever you need his response. Start a follow-up meant for an agent with To Muse:, To Codex:, or To Grok Bot: so it goes into the thread. Acknowledge messages that ask for nothing without dispatching work."
 	].join("\n");
 }
 function threadGuide(handoff) {
@@ -691,6 +705,8 @@ exports.museDmOpening = museDmOpening;
 exports.nextStep = nextStep;
 exports.ownsRequest = ownsRequest;
 exports.peerReport = peerReport;
+exports.pingedOwnerNote = pingedOwnerNote;
+exports.pingsOwner = pingsOwner;
 exports.planFirst = planFirst;
 exports.planGuide = planGuide;
 exports.pollDelay = pollDelay;

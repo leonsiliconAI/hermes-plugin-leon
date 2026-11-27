@@ -251,8 +251,10 @@ class Progress:
         return response["ts"]
 
 
-def wire_progress_delivery(slack, progress):
-    """Post task commentary as replies and save completed answers to the progress message."""
+def wire_progress_delivery(slack, progress, owner=""):
+    """Post task commentary as replies and save completed answers to the progress message.
+
+    An answer that mentions ``owner`` goes to the channel as a new message instead, so Slack notifies him."""
     adapter = slack.adapter
     send = getattr(adapter, "send", None)
     draft = getattr(adapter, "send_draft", None)
@@ -306,13 +308,21 @@ def wire_progress_delivery(slack, progress):
                 if call(__file__, "publishTaskAnswer", content):
                     # The reply anchor is the message being answered, also after a redirected turn.
                     anchor = metadata.get("reply_to_message_id") or reply_to
+                    flat = {key: value for key, value in metadata.items()
+                            if key not in ("thread_id", "thread_ts", "_hermes_task_answer")}
                     if anchor and progress.is_follow_up(route[0], chat_id, anchor):
                         # Only messages in the card's thread change the card (Leon's rule, 2026-11-26). A
                         # later top-level message is answered at the top of the channel, like any other.
-                        flat = {key: value for key, value in metadata.items()
-                                if key not in ("thread_id", "thread_ts", "_hermes_task_answer")}
                         return await send(chat_id, content, reply_to=None, metadata=flat)
-                    progress.finish(route, adapter.format_message(content).strip())
+                    text = adapter.format_message(content).strip()
+                    if call(__file__, "pingsOwner", text, owner):
+                        # Slack never notifies a mention an edit adds, so an answer that needs Leon goes to
+                        # the channel as a new message and the card points to it (Leon's rule, 2026-11-27).
+                        result = await send(chat_id, content, reply_to=None, metadata=flat)
+                        if result.success:
+                            progress.finish(route, call(__file__, "pingedOwnerNote", chat_id, result.message_id))
+                        return result
+                    progress.finish(route, text)
                     # The durable queue owns delivery. The consumer must never treat the parent as a draft ID.
                     return SendResult(success=True)
         return await send(chat_id, content, reply_to=reply_to, metadata=metadata)

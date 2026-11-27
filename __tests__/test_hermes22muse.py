@@ -996,6 +996,7 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         attempt = self.client.chat_postMessage.await_args.kwargs
         self.assertEqual(attempt["thread_ts"], root)
         self.assertEqual(attempt["text"], note)
+        self.assertEqual(attempt["blocks"][0]["block_id"], f"hermes-task-progress-note/{attempt['client_msg_id']}")
         self.assertEqual(attempt["blocks"][0]["text"], {"type": "plain_text", "text": note})
         with self.store.connection() as db:
             db.execute("UPDATE progress_notes SET due=0")
@@ -1114,11 +1115,30 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(update["text"].endswith("*Update from Hermes*\nIt's Grok Bot.\n\n@Autolinear move done"))
         self.assertNotIn("The browser agent is Grok Bot.", update["text"])
 
-        # Gateway commentary is public interim text and can be sent in the thread without changing the outcome.
+        # A gateway update is a new reply in the original thread and carries the progress marker.
         interim = {**thread, "_interim_send": True, "notify": True, "reply_to_message_id": in_thread}
-        await self.adapter.send(CHANNEL, "Grok Bot confirmed the active account.", reply_to=in_thread, metadata=interim)
-        self.assertEqual(sent[-1], (CHANNEL, "Grok Bot confirmed the active account.", in_thread, interim))
+        commentary = "Grok Bot confirmed the active account."
+        result = await self.adapter.send(CHANNEL, commentary, reply_to=in_thread, metadata=interim)
+        self.assertTrue(result.success)
+        self.assertIsNotNone(result.message_id)
+        self.assertEqual(len(sent), 3)
+        post = self.client.chat_postMessage.await_args.kwargs
+        self.assertEqual(post["thread_ts"], root)
+        self.assertEqual(post["text"], commentary)
+        self.assertEqual(post["blocks"][0]["block_id"], f"hermes-task-progress-note/{post['client_msg_id']}")
         self.assertEqual(progress.read(route)["answer"], "It's Grok Bot.\n\n@Autolinear move done")
+
+        # The gateway's fallback status path only provides the task route.
+        status = "I found the account overview."
+        await self.adapter.send(CHANNEL, status, metadata=thread)
+        post = self.client.chat_postMessage.await_args.kwargs
+        self.assertEqual((post["thread_ts"], post["text"]), (root, status))
+        self.assertIn("hermes-task-progress-note/", post["blocks"][0]["block_id"])
+
+        # A directed reply still goes to the agent as its own Slack message in the thread.
+        instruction = "To Grok Bot: check the expiration date."
+        await self.adapter.send(CHANNEL, instruction, reply_to=in_thread, metadata=interim)
+        self.assertEqual(sent[-1], (CHANNEL, instruction, in_thread, interim))
 
     async def test_cards_from_before_plans_keep_working(self):
         with self.store.connection() as db:

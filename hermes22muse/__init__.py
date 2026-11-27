@@ -644,7 +644,7 @@ def register(ctx):
         keep_crash_log(get_hermes_home())
         current = Relay(Store(get_hermes_home() / "hermes22muse"), Slack(adapter, muse_token), muse, owner, app(),
                         turns=turns)
-        unwire_progress = wire_progress_delivery(adapter, current.store.progress)
+        unwire_progress = wire_progress_delivery(current.slack, current.store.progress)
         worker = asyncio.create_task(current.run())
         relay = current
         adapter._hermes22muse_worker = worker

@@ -14,6 +14,17 @@ from .._bridge import call
 LOG = logging.getLogger(__name__)
 
 
+async def _post_note(slack, job, text, key, *, formatted=False):
+    if formatted:
+        block_text = {"type": "mrkdwn", "text": text, "verbatim": True}
+    else:
+        block_text = {"type": "plain_text", "text": text}
+    blocks = [{"type": "section", "block_id": f"hermes-task-progress-note/{key}", "text": block_text}]
+    ts, _ = await slack.post(job, text if formatted else escape(text, quote=False), key, False, None,
+                             blocks=blocks)
+    return ts
+
+
 class Progress:
     def __init__(self, connection):
         self.connection = connection
@@ -205,10 +216,8 @@ class Progress:
                 ) ORDER BY id LIMIT 8
             """, (time.time(),)).fetchall()
         for note in notes:
-            blocks = [{"type": "section", "block_id": f"hermes-task-progress-note/{note['key']}",
-                       "text": {"type": "plain_text", "text": note["text"]}}]
             try:
-                await slack.post(note, escape(note["text"], quote=False), note["key"], False, None, blocks=blocks)
+                await _post_note(slack, note, note["text"], note["key"])
             except Exception as exc:
                 headers = getattr(getattr(exc, "response", None), "headers", {}) or {}
                 delay = call(__file__, "retryDelay", 0, str(headers.get("Retry-After", "")))
@@ -242,8 +251,9 @@ class Progress:
         return response["ts"]
 
 
-def wire_progress_delivery(adapter, progress):
-    """Use the progress message for completed gateway replies on an existing task route."""
+def wire_progress_delivery(slack, progress):
+    """Post task commentary as replies and save completed answers to the progress message."""
+    adapter = slack.adapter
     send = getattr(adapter, "send", None)
     draft = getattr(adapter, "send_draft", None)
     final = getattr(adapter, "send_final_ledgered", None)
@@ -263,7 +273,27 @@ def wire_progress_delivery(adapter, progress):
 
     @functools.wraps(send)
     async def send_to_progress(chat_id, content, reply_to=None, metadata=None):
-        if metadata and metadata.get("_interim_send"):
+        if metadata and (metadata.get("_interim_send") or not (
+                metadata.get("notify") or metadata.get("expect_edits") or metadata.get("_hermes_task_answer"))):
+            route = card_route(chat_id, metadata)
+            if route and call(__file__, "publishTaskAnswer", content):
+                # The gateway also sends commentary via its status path without an interim flag.
+                # Both paths use the same marker as a queued progress note.
+                team, channel, root = route
+                job = dict(team=team, channel=channel, root=root)
+                text = adapter.format_message(content).strip()
+                if not text:
+                    return SendResult(success=True)
+                parts = adapter.truncate_message(text, 2900) if len(text) > 2900 else [text]
+                try:
+                    ts = None
+                    for part in parts:
+                        ts = await _post_note(slack, job, part, str(uuid.uuid4()), formatted=True)
+                    return SendResult(success=True, message_id=ts)
+                except Exception as exc:
+                    LOG.warning("Slack task commentary delivery failed for %s:%s (%s)",
+                                channel, root, type(exc).__name__)
+                    return SendResult(success=False, error=str(exc))
             return await send(chat_id, content, reply_to=reply_to, metadata=metadata)
         if metadata and (metadata.get("expect_edits") or
                          (metadata.get("notify") and (metadata.get("reply_to_message_id") or

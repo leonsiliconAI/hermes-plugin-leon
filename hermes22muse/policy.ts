@@ -163,30 +163,36 @@ export function progressMessage(
   // A pending assignment has no reply yet.
   const updates = reports.filter((report) => report.ts && report.text.trim());
   if (summary || updates.length) {
-    const progress = ["Progress"];
-    blocks.push(
-      progressRichText("rich_text_section", {
-        type: "text",
-        text: "Progress",
-        style: { underline: true },
-      }),
-    );
-    if (summary) {
-      progress.push(
-        summary
-          .split(/\r?\n/)
-          .map((line) => "> " + escapeSlack(line))
-          .join("\n"),
+    const sectionLimit = 3000;
+    const heading = "> *Progress*";
+    const summaryLines = summary
+      ? summary.split(/\r?\n/).map((line) => "> " + escapeSlack(line))
+      : [];
+    const progress = [heading, ...summaryLines];
+    let quote = progress.join("\n");
+    // Escaping can push a summary past Slack's 3000-character section limit.
+    if (quote.length > sectionLimit) {
+      blocks.push(
+        progressRichText(
+          "rich_text_quote",
+          { type: "text", text: "Progress", style: { bold: true } },
+          { type: "text", text: "\n" + summary },
+        ),
       );
-      blocks.push(progressRichText("rich_text_quote", { type: "text", text: summary }));
+      quote = "";
     }
     for (const report of updates) {
       const text = report.text.replace(/\s+/g, " ").trim();
       const excerpt = text.length > 260 ? text.slice(0, 257) + "…" : text;
-      const line = `• *${report.agent}* · ${escapeSlack(excerpt)} <${slackPermalink(channel, report.ts)}|Open reply>`;
+      const line = `> • *${report.agent}* · ${escapeSlack(excerpt)} <${slackPermalink(channel, report.ts)}|Open reply>`;
       progress.push(line);
-      blocks.push(progressSection(line));
+      if (quote.length + line.length + 1 > sectionLimit) {
+        blocks.push(progressSection(quote));
+        quote = "";
+      }
+      quote = quote ? quote + "\n" + line : line;
     }
+    if (quote) blocks.push(progressSection(quote));
     sections.push(progress.join("\n"));
   }
   if (threadLink) {
@@ -219,13 +225,13 @@ export function progressMessage(
 
 function progressRichText(
   type: "rich_text_section" | "rich_text_quote",
-  element: {
+  ...elements: {
     type: "text";
     text: string;
-    style?: { underline: boolean };
-  },
+    style?: { bold: boolean };
+  }[]
 ) {
-  return { type: "rich_text", elements: [{ type, elements: [element] }] };
+  return { type: "rich_text", elements: [{ type, elements }] };
 }
 
 function progressSection(text: string) {

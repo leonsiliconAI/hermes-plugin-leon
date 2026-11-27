@@ -889,11 +889,16 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         self.client.chat_postMessage.assert_awaited_once()
         update = self.client.chat_update.await_args.kwargs
         self.assertEqual(update["ts"], root)
-        self.assertTrue(update["text"].startswith("Progress\n"))
-        heading = update["blocks"][0]["elements"][0]["elements"][0]
-        self.assertEqual(heading, {"type": "text", "text": "Progress", "style": {"underline": True}})
-        self.assertIn("Browser check confirmed requirement A.", update["text"])
-        self.assertIn("Which constraints apply?", update["text"])
+        progress_quote = (
+            "> *Progress*\n"
+            f"> • *Codex* · To Muse: Which constraints apply? <https://app.slack.com/archives/{CHANNEL}/"
+            "p1795000200000001|Open reply>\n"
+            f"> • *Grok Bot* · Browser check confirmed requirement A. <https://app.slack.com/archives/{CHANNEL}/"
+            "p1795000200000002|Open reply>"
+        )
+        self.assertEqual(update["text"], progress_quote)
+        [block] = update["blocks"]
+        self.assertEqual(block["text"], {"type": "mrkdwn", "text": progress_quote, "verbatim": True})
         self.assertEqual(progress.read(route)["card"], root)
 
         # A Muse reply goes into the same Slack thread and is recorded with its Slack receipt.
@@ -915,8 +920,10 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         await Store(self.store.directory).progress.flush(publisher)
         update = self.client.chat_update.await_args.kwargs
         self.assertEqual(update["ts"], root)
-        self.assertIn("Verified requirement A.", update["text"])
-        self.assertIn("To Codex: The limit is 20.", update["text"])
+        [block] = update["blocks"]
+        quote = block["text"]["text"]
+        self.assertTrue(quote.startswith("> *Progress*\n> Verified requirement A."))
+        self.assertIn("\n> • *Muse* · To Codex: The limit is 20.", quote)
         self.assertIn((root, "Verified requirement A. Codex is applying the limit."), posts(self.client))
         self.assertFalse(self.call("slack_task_progress")["queued"])
 
@@ -928,6 +935,8 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["ts"], root)
         self.assertIn("Confirmed.", update["text"])
         self.assertIn("Verified the result.\n\n@Autolinear move done", update["text"])
+        self.assertEqual(update["blocks"][-1]["text"]["text"],
+                         "*Update from Hermes*\nVerified the result.\n\n@Autolinear move done")
         self.assertEqual(self.call("slack_task_progress")["latest_answer"],
                          "Verified the result.\n\n@Autolinear move done")
 
@@ -997,16 +1006,16 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         await self.store.progress.flush(publisher)
         self.assertEqual(posts(self.client).count((root, note)), 2)  # Initial request and retry only.
         update = self.client.chat_update.await_args.kwargs
-        self.assertEqual(update["text"], quick + "\n&lt;!channel&gt;\n\nProgress\n> " + note)
-        heading = update["blocks"][1]["elements"][0]["elements"][0]
-        self.assertEqual(heading, {"type": "text", "text": "Progress", "style": {"underline": True}})
+        progress_quote = "> *Progress*\n> " + note
+        self.assertEqual(update["text"], quick + "\n&lt;!channel&gt;\n\n" + progress_quote)
+        self.assertEqual(update["blocks"][1]["text"]["text"], progress_quote)
 
         # The full answer joins the quick one; slack22linear still reads only the answer after its heading.
         self.store.progress.finish(route, "Removed all 12 events.\n\n@Autolinear move done")
         await self.store.progress.flush(publisher)
         text = self.client.chat_update.await_args.kwargs["text"]
         self.assertTrue(text.startswith(quick))
-        self.assertNotIn("\n\nProgress\n", text)
+        self.assertNotIn(progress_quote, text)
         heading = "\n\n*Update from Hermes*\n"
         self.assertEqual(text.count(heading), 1)
         self.assertEqual(text[text.index(heading) + len(heading):],

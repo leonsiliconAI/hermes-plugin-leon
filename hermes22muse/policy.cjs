@@ -109,26 +109,32 @@ function progressMessage(channel, threadLink, summary, reports, answer, plan = "
 	}
 	const updates = reports.filter((report) => report.ts && report.text.trim());
 	if (summary || updates.length) {
-		const progress = ["Progress"];
-		blocks.push(progressRichText("rich_text_section", {
-			type: "text",
-			text: "Progress",
-			style: { underline: true }
-		}));
-		if (summary) {
-			progress.push(summary.split(/\r?\n/).map((line) => "> " + escapeSlack(line)).join("\n"));
+		const sectionLimit = 3e3;
+		const progress = ["> *Progress*", ...summary ? summary.split(/\r?\n/).map((line) => "> " + escapeSlack(line)) : []];
+		let quote = progress.join("\n");
+		if (quote.length > sectionLimit) {
 			blocks.push(progressRichText("rich_text_quote", {
 				type: "text",
-				text: summary
+				text: "Progress",
+				style: { bold: true }
+			}, {
+				type: "text",
+				text: "\n" + summary
 			}));
+			quote = "";
 		}
 		for (const report of updates) {
 			const text = report.text.replace(/\s+/g, " ").trim();
 			const excerpt = text.length > 260 ? text.slice(0, 257) + "…" : text;
-			const line = `• *${report.agent}* · ${escapeSlack(excerpt)} <${slackPermalink(channel, report.ts)}|Open reply>`;
+			const line = `> • *${report.agent}* · ${escapeSlack(excerpt)} <${slackPermalink(channel, report.ts)}|Open reply>`;
 			progress.push(line);
-			blocks.push(progressSection(line));
+			if (quote.length + line.length + 1 > sectionLimit) {
+				blocks.push(progressSection(quote));
+				quote = "";
+			}
+			quote = quote ? quote + "\n" + line : line;
 		}
+		if (quote) blocks.push(progressSection(quote));
 		sections.push(progress.join("\n"));
 	}
 	if (threadLink) {
@@ -155,12 +161,12 @@ function progressMessage(channel, threadLink, summary, reports, answer, plan = "
 		}, ...blocks.slice(1)]
 	};
 }
-function progressRichText(type, element) {
+function progressRichText(type, ...elements) {
 	return {
 		type: "rich_text",
 		elements: [{
 			type,
-			elements: [element]
+			elements
 		}]
 	};
 }

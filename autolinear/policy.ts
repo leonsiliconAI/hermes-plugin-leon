@@ -23,15 +23,21 @@ const issueScope =
   "for new work, link it to this issue, and let the sync open its own Slack channel.";
 
 /**
- * Where Leon's messages become new issues: his DM with Hermes and project channels (`project-…`).
- * Anywhere else, task channels included, Hermes answers in place. A channel whose name couldn't be
- * read (Hermes then has only its ID) never qualifies.
+ * Where Leon's messages become new issues: his DM with Hermes and project channels (`project-…`,
+ * and `watcher-…` for a Watcher project since 2026-11-28). Anywhere else, task channels included,
+ * Hermes answers in place. A channel whose name couldn't be read (Hermes then has only its ID) never
+ * qualifies.
  */
 export const projectPrefix = "project-";
+export const watcherPrefix = "watcher-";
 
 export function intakeChannel(channel: string, name: string) {
   if (channel.startsWith("D")) return true;
-  return Boolean(name) && name !== channel && name.startsWith(projectPrefix);
+  return (
+    Boolean(name) &&
+    name !== channel &&
+    (name.startsWith(projectPrefix) || name.startsWith(watcherPrefix))
+  );
 }
 
 export function ordinary(event: Message) {
@@ -136,8 +142,10 @@ export function taskPrompt(inIssue: boolean, report: boolean, bot: string) {
     "`move done` (only once Leon has said it's done or to close it; finished work, your answer, his " +
     "silence or his thanks never count, so finished work gets `move leon`), " +
     "`move leon` (Leon needs to see, decide or do something; mention him in your message), " +
-    '`move trigger --who "<who>"` (waiting on someone else), ' +
-    '`move trigger --event "<what>" --stop YYYY-MM-DD` (waiting for an event until a stop date), ' +
+    '`move watching --who "<who>"` (waiting on someone else\'s reply), ' +
+    '`move watching --event "<what>" --stop YYYY-MM-DD` (waiting for an event until a stop date; ' +
+    "Watching keeps this issue as the task: Autotrigger wakes it here when a matching message " +
+    "arrives in a #feed-* channel, so never make a Watcher project for one wait), " +
     "`move date --start <RFC 3339 time or YYYY-MM-DD>` (work starts later), " +
     "`move executing --until <45m, 2h or an RFC 3339 time, at most 24h>` (a delegated agent is " +
     "still working on it; without `--until` it holds for an hour)" +

@@ -12,14 +12,16 @@ function issueChannel(name, prefix) {
 }
 // autolinear/policy.ts
 /**
-* Where Leon's messages become new issues: his DM with Hermes and project channels (`project-…`).
-* Anywhere else, task channels included, Hermes answers in place. A channel whose name couldn't be
-* read (Hermes then has only its ID) never qualifies.
+* Where Leon's messages become new issues: his DM with Hermes and project channels (`project-…`,
+* and `watcher-…` for a Watcher project since 2026-11-28). Anywhere else, task channels included,
+* Hermes answers in place. A channel whose name couldn't be read (Hermes then has only its ID) never
+* qualifies.
 */
 const projectPrefix = "project-";
+const watcherPrefix = "watcher-";
 function intakeChannel(channel, name) {
 	if (channel.startsWith("D")) return true;
-	return Boolean(name) && name !== channel && name.startsWith("project-");
+	return Boolean(name) && name !== channel && (name.startsWith("project-") || name.startsWith("watcher-"));
 }
 function ordinary(event) {
 	return !(event._hermes_reaction || event._hermes_force_process || event.bot_id || typeof event.client_msg_id === "string" && event.client_msg_id.startsWith("de1e6a7e-"));
@@ -67,7 +69,7 @@ function taskPrompt(inIssue, report, bot) {
 	const stay = report ? "" : ", or `stay` (keep the status; after your 👀 moved the issue to Executing, that means the status it had before, and it's refused when there was none)";
 	const dispatch = report ? "" : "Choose and coordinate agents as the work requires. Use `move executing --until <duration>` while delegated work is active. Executing is a lease: once its `--until` has passed and nothing has happened in the channel for 15 minutes (no turn of yours running there, no posts), the issue goes to Leon. When results come back, verify them and set the status based on what remains. Keep device-only verification pending until it runs. ";
 	const reminder = report ? "" : " When you forget, Autolinear reminds you here. Answer it with the line.";
-	return "Keep this Linear issue's title and Slack channel name. Create a separate Linear issue for new work, link it to this issue, and let the sync open its own Slack channel. " + instructions + "Start that line with " + mention + ", written exactly so, then one of: `move done` (only once Leon has said it's done or to close it; finished work, your answer, his silence or his thanks never count, so finished work gets `move leon`), `move leon` (Leon needs to see, decide or do something; mention him in your message), `move trigger --who \"<who>\"` (waiting on someone else), `move trigger --event \"<what>\" --stop YYYY-MM-DD` (waiting for an event until a stop date), `move date --start <RFC 3339 time or YYYY-MM-DD>` (work starts later), `move executing --until <45m, 2h or an RFC 3339 time, at most 24h>` (a delegated agent is still working on it; without `--until` it holds for an hour)" + stay + ". " + dispatch + "Set the issue status through Autolinear. Mentioning Leon only notifies him." + reminder + " When Autolinear says a command didn't work, send a corrected line.";
+	return "Keep this Linear issue's title and Slack channel name. Create a separate Linear issue for new work, link it to this issue, and let the sync open its own Slack channel. " + instructions + "Start that line with " + mention + ", written exactly so, then one of: `move done` (only once Leon has said it's done or to close it; finished work, your answer, his silence or his thanks never count, so finished work gets `move leon`), `move leon` (Leon needs to see, decide or do something; mention him in your message), `move watching --who \"<who>\"` (waiting on someone else's reply), `move watching --event \"<what>\" --stop YYYY-MM-DD` (waiting for an event until a stop date; Watching keeps this issue as the task: Autotrigger wakes it here when a matching message arrives in a #feed-* channel, so never make a Watcher project for one wait), `move date --start <RFC 3339 time or YYYY-MM-DD>` (work starts later), `move executing --until <45m, 2h or an RFC 3339 time, at most 24h>` (a delegated agent is still working on it; without `--until` it holds for an hour)" + stay + ". " + dispatch + "Set the issue status through Autolinear. Mentioning Leon only notifies him." + reminder + " When Autolinear says a command didn't work, send a corrected line.";
 }
 function applyPrompt(current, inIssue, event, bot) {
 	const report = Boolean(agentGroup(event?.client_msg_id));
@@ -134,4 +136,5 @@ exports.projectPrefix = projectPrefix;
 exports.requestIntake = requestIntake;
 exports.shouldReact = shouldReact;
 exports.taskPrompt = taskPrompt;
+exports.watcherPrefix = watcherPrefix;
 exports.where = where;

@@ -1,7 +1,7 @@
 """Give each of Leon's Slack messages its own Linear issue and channel the moment it arrives.
 
 Leon's rule (2026-11-21, narrowed 2026-11-26): every message he sends Hermes in his DM or a project
-channel (``project-…``) becomes a new Linear issue in Awaiting Init (the team's default status) with its own channel, at once; his
+channel (``project-…``, or a Watcher's ``watcher-…``) becomes a new Linear issue in Awaiting Init (the team's default status) with its own channel, at once; his
 message is edited to link the channel, and Hermes answers, and keeps the conversation going, there.
 
 autolinear (autolinear.leonsilicon.ai) does the work: it creates the issue and the channel, edits

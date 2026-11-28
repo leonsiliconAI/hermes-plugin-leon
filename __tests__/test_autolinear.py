@@ -260,8 +260,8 @@ async def test_anyones_turn_in_an_issue_channel_gets_the_rule_with_autolinears_m
     assert "Start that line with <@U0AUTOLIN01>, written exactly so" in turn.channel_prompt
     assert "Choose and coordinate agents as the work requires" in turn.channel_prompt
     assert "`move executing --until <45m, 2h or an RFC 3339 time, at most 24h>` (a delegated agent is still working on it" in turn.channel_prompt
-    assert '`move trigger --who "<who>"`' in turn.channel_prompt
-    assert '`move trigger --event "<what>" --stop YYYY-MM-DD`' in turn.channel_prompt
+    assert '`move watching --who "<who>"`' in turn.channel_prompt
+    assert '`move watching --event "<what>" --stop YYYY-MM-DD`' in turn.channel_prompt
     assert "move hermes" not in turn.channel_prompt
 
 

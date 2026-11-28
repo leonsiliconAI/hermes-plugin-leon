@@ -254,7 +254,8 @@ class Progress:
 def wire_progress_delivery(slack, progress, owner=""):
     """Post task commentary as replies and save completed answers to the progress message.
 
-    An answer that mentions ``owner`` goes to the channel as a new message instead, so Slack notifies him."""
+    An answer that mentions ``owner`` goes to the channel as a new message instead, so Slack notifies him,
+    and so does a button prompt (an approval, a question), with his mention added."""
     adapter = slack.adapter
     send = getattr(adapter, "send", None)
     draft = getattr(adapter, "send_draft", None)
@@ -335,6 +336,21 @@ def wire_progress_delivery(slack, progress, owner=""):
         return await final(event, session_key, text_content, metadata, reply_to=reply_to,
                            is_ephemeral_response=is_ephemeral_response)
 
+    post_prompt = getattr(adapter, "_post_interactive_blocks", None)
+    if callable(post_prompt):
+        @functools.wraps(post_prompt)
+        async def prompt_to_channel(chat_id, text, blocks, metadata, *args, **kwargs):
+            # An approval or a question waits unseen in Task progress's thread (LEON-586): post it to
+            # the channel and mention Leon, so Slack notifies him.
+            if card_route(chat_id, metadata):
+                metadata = {key: value for key, value in metadata.items() if key not in ("thread_id", "thread_ts")}
+                moved = call(__file__, "ownerPrompt", text, blocks, owner)
+                text, blocks = moved["text"], moved["blocks"]
+                LOG.info("Slack task progress: a button prompt in %s goes to the channel", chat_id)
+            return await post_prompt(chat_id, text, blocks, metadata, *args, **kwargs)
+
+        adapter._post_interactive_blocks = prompt_to_channel
+
     adapter.send = send_to_progress
     adapter.send_final_ledgered = final_to_progress
     if callable(draft):
@@ -355,5 +371,7 @@ def wire_progress_delivery(slack, progress, owner=""):
             adapter.send_final_ledgered = final
         if callable(draft) and adapter.send_draft is buffer_draft:
             adapter.send_draft = draft
+        if callable(post_prompt) and adapter._post_interactive_blocks is prompt_to_channel:
+            adapter._post_interactive_blocks = post_prompt
 
     return unwire

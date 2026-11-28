@@ -99,6 +99,13 @@ def fake_adapter():
         # The gateway's ledger sends through whatever adapter.send is now, the plugin's wrapper included.
         return await adapter.send(CHANNEL, text, reply_to=reply_to, metadata=metadata), adapter
 
+    prompts = []
+
+    async def post_interactive_blocks(chat_id, text, blocks, metadata, **kwargs):
+        """What reaches the Slack adapter's poster of approval and question cards."""
+        prompts.append((chat_id, text, blocks, metadata, kwargs))
+        return {"ok": True, "ts": f"1795000400.{len(prompts):06d}"}
+
     adapter = SimpleNamespace(
         _outbound_blocked=lambda channel, action: False,
         _get_client=lambda channel, team_id: client,
@@ -109,6 +116,8 @@ def fake_adapter():
         send_final_ledgered=send_final_ledgered,
         format_message=lambda text: text,
         sent=sent,
+        _post_interactive_blocks=post_interactive_blocks,
+        prompts=prompts,
     )
     return adapter, client
 
@@ -1139,6 +1148,38 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         instruction = "To Grok Bot: check the expiration date."
         await self.adapter.send(CHANNEL, instruction, reply_to=in_thread, metadata=interim)
         self.assertEqual(sent[-1], (CHANNEL, instruction, in_thread, interim))
+
+    async def test_a_button_prompt_in_the_card_thread_goes_to_the_channel_and_pings_leon(self):
+        """LEON-586 (2026-11-27 and 11-28): both of Hermes's SOUL.md approvals waited in Task progress's thread,
+        where Slack notified no one, until they timed out; the second while Leon was in the channel."""
+        root = (await self.build_turn()).source.thread_id
+        approval = [{"type": "section", "text": {"type": "mrkdwn", "text": ":warning: *Approval needed*"}},
+                    {"type": "actions", "elements": [{"type": "button", "action_id": "hermes_approve_once"},
+                                                     {"type": "button", "action_id": "hermes_deny"}]}]
+        result = await self.adapter._post_interactive_blocks(
+            CHANNEL, "Approval needed", approval, {"thread_id": root, "slack_team_id": TEAM})
+        self.assertEqual(result["ts"], "1795000400.000001")
+        line = f"<@{OWNER}> Hermes is waiting for your approval. Tap a button below: a typed reply doesn't approve it."
+        self.assertEqual(self.adapter.prompts[0], (
+            CHANNEL, f"{line}\nApproval needed",
+            [{"type": "context", "elements": [{"type": "mrkdwn", "text": line}]}, *approval],
+            {"slack_team_id": TEAM}, {}))
+        # A question waits for Leon too.
+        question = [{"type": "section", "text": {"type": "mrkdwn", "text": "Which calendar?"}},
+                    {"type": "actions", "elements": [{"type": "button", "action_id": "hermes_clarify_0"}]}]
+        await self.adapter._post_interactive_blocks(
+            CHANNEL, "Which calendar?", question, {"thread_ts": root, "thread_id": root, "slack_team_id": TEAM},
+            sanitize=False)
+        text, blocks, metadata, options = self.adapter.prompts[1][1:]
+        self.assertEqual((text, metadata, options), (f"<@{OWNER}> Hermes is waiting for your answer below.\n"
+                                                     "Which calendar?", {"slack_team_id": TEAM}, {"sanitize": False}))
+        self.assertEqual(blocks[1:], question)
+        # Prompts anywhere else stay where Hermes put them.
+        other = {"thread_id": "1795000009.000001", "slack_team_id": TEAM}
+        await self.adapter._post_interactive_blocks(CHANNEL, "Approval needed", approval, other)
+        await self.adapter._post_interactive_blocks(CHANNEL, "Approval needed", approval, None)
+        self.assertEqual(self.adapter.prompts[2:], [(CHANNEL, "Approval needed", approval, other, {}),
+                                                    (CHANNEL, "Approval needed", approval, None, {})])
 
     async def test_an_answer_that_needs_leon_is_a_new_message_in_the_channel(self):
         """Leon, 2026-11-27: "if hermes needs my response on something, instead of just updating the original

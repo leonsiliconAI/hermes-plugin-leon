@@ -133,7 +133,8 @@ export function taskPrompt(inIssue: boolean, report: boolean, bot: string) {
     "Start that line with " +
     mention +
     ", written exactly so, then one of: " +
-    "`move done` (nothing is left for anyone, even after a thanks), " +
+    "`move done` (only once Leon has said it's done or to close it; finished work, your answer, his " +
+    "silence or his thanks never count, so finished work gets `move leon`), " +
     "`move leon` (Leon needs to see, decide or do something; mention him in your message), " +
     '`move trigger --who "<who>"` (waiting on someone else), ' +
     '`move trigger --event "<what>" --stop YYYY-MM-DD` (waiting for an event until a stop date), ' +

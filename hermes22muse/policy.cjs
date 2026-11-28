@@ -201,6 +201,31 @@ function pingsOwner(text, owner) {
 	const prose = text.replace(/```[\s\S]*?```|`[^`\n]*`/g, "");
 	return new RegExp(`<@${owner}(?:\\|[^>]*)?>`).test(prose);
 }
+/**
+* A button prompt Hermes posts in Task progress's thread (an approval, a question) goes to the
+* channel with Leon's mention instead. Slack notifies no one of a bot's reply in that thread, so
+* LEON-586's two SOUL.md approvals (2026-11-27 and 11-28) waited there unseen until they timed out,
+* once while Leon was in the channel typing "yes approved", which approves nothing. The mention
+* goes in a context block above the prompt: once answered, Hermes rewrites the card from its first
+* section and drops the rest.
+*/
+function ownerPrompt(text, blocks, owner) {
+	if (!/^[UW][A-Z0-9]+$/.test(owner)) return {
+		text,
+		blocks
+	};
+	const line = blocks.some((block) => block.elements?.some((element) => /^hermes_(?:approve|deny)/.test(element.action_id ?? ""))) ? `<@${owner}> Hermes is waiting for your approval. Tap a button below: a typed reply doesn't approve it.` : `<@${owner}> Hermes is waiting for your answer below.`;
+	return {
+		text: `${line}\n${text}`,
+		blocks: [{
+			type: "context",
+			elements: [{
+				type: "mrkdwn",
+				text: line
+			}]
+		}, ...blocks]
+	};
+}
 /** What Task progress shows in place of an answer that went to the channel to ping Leon. */
 function pingedOwnerNote(channel, ts) {
 	return `Asked you in ${ts && timestamp.test(ts) ? `<${slackPermalink(channel, ts)}|a new message>` : "a new message"} in this channel.`;
@@ -703,6 +728,7 @@ exports.methodGuard = methodGuard;
 exports.methodSearch = methodSearch;
 exports.museDmOpening = museDmOpening;
 exports.nextStep = nextStep;
+exports.ownerPrompt = ownerPrompt;
 exports.ownsRequest = ownsRequest;
 exports.peerReport = peerReport;
 exports.pingedOwnerNote = pingedOwnerNote;
